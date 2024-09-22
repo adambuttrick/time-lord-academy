@@ -4,8 +4,7 @@
 
 The file `tagged_affiliations.xml` is derived from the GROTOAP2 dataset:
 
-- **Source:** GROTOAP2 dataset
-- **DOI:** https://doi.org/10.18150/8527338
+- https://doi.org/10.18150/8527338
 
 ### Dictionary Data Files
 
