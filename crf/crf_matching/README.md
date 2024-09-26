@@ -1,25 +1,34 @@
-# CRF Fallback Script for Affiliation Parsing
+# CRF Fallback Matching
 
-Uses the trained Conditional Random Field (CRF) model from `train_model.py` to parse affiliations in a fallback matching strategy, using the existing ROR matching.
+Uses a Conditional Random Field (CRF) model to parse affiliations as part of a multi-step, fallback matching strategy.
+
+## Matching Strategy
+
+1. Query single search in the [Crossref Marple API](https://gitlab.com/crossref/labs/marple)
+2. If no match, use CRF model to parse affiliation and generate new fallback queries
+3. Query ROR API/multi-search with these fallback queries
 
 ## Installation
 
-`pip install -r requirements.txt`
+```
+pip install -r requirements.txt
+```
 
 ## Usage
 
 ```
-python crf_fallback.py -i <input_file.csv> -o <output_file.csv> -m <crf_model.joblib> -c <countries.txt> -n <institutions.txt> -d <addresses.txt> [-v]
+python single_search_crf_fallback.py -i <input_file.csv> -o <output_file.csv> -m <crf_model.joblib> -c <countries.txt> -n <institutions.txt> -d <addresses.txt> [--use-crossref-marple] [-v]
 ```
 
 ## Arguments
 
 - `-i, --input`: Input CSV file containing affiliations (required)
 - `-o, --output`: Output CSV file for results (default: 'ror-affiliation_results.csv')
-- `-m, --model`: Path to the trained CRF model file (default: 'model/affiliation_parser_crf_model.joblib'. Train first using `train_model.py` and add to the script directory.)
+- `-m, --model`: Path to the trained CRF model file (default: 'model/affiliation_parser_crf_model.joblib')
 - `-c, --countries`: File containing list of countries (default: 'data/countries.txt')
 - `-n, --institutions`: File containing institution keywords (default: 'data/institution_keywords.txt')
 - `-d, --addresses`: File containing address keywords (default: 'data/address_keywords.txt')
+- `--use-crossref-marple`: Enable Crossref Marple API query (optional)
 - `-v, --verbose`: Enable verbose logging
 
 ## Input Format
@@ -28,13 +37,25 @@ The input CSV file should contain a column named 'affiliation' with the affiliat
 
 ## Output Format
 
-The script will add the following columns to the input CSV:
+The output will be the input CSV with the following columns added:
 
 - `predicted_ror_id`: The ROR ID(s) of the matched organization(s)
 - `prediction_score`: The confidence score(s) of the match(es)
-- `match_type`: Indicates whether the match was found by the initial query or fallback query
+- `match_type`: Indicates the method used to find the match ('marple', 'crf_fallback', or 'no_match')
 - `fallback_queries`: The queries used in the fallback process, if applicable
+
 
 ## Logging
 
-Script creates a log file with the naming format `YYYYMMDD_HHMMSS_ror-affiliation.log`.
+The script creates a log file with the naming format `YYYYMMDD_HHMMSS_ror-affiliation.log`. Use the `-v` flag for more detailed logging.
+
+## Initial results
+
+| Dataset                          |   Precision |   Recall |   F1 Score |   F0.5 Score |   Specificity |
+|:---------------------------------|------------:|---------:|-----------:|-------------:|--------------:|
+| affiliations-crossref-2024-02-19 |    0.926132 | 0.921802 |   0.923962 |     0.925262 |      0.732612 |
+
+
+
+
+
