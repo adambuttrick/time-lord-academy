@@ -5,6 +5,7 @@ import argparse
 import joblib
 import requests
 from datetime import datetime
+from urllib.parse import quote
 from utils import tokenize, create_dictionaries, extract_features
 
 
@@ -16,26 +17,32 @@ def setup_logging(verbose):
                         format='%(asctime)s %(levelname)s %(message)s')
 
 
-def query_affiliation(affiliation, verbose):
+def query_marple(affiliation, verbose):
     results = []
     try:
-        url = "https://api.ror.org/organizations"
-        params = {"affiliation": affiliation}
-        r = requests.get(url, params=params)
+        base_url = "https://marple.research.crossref.org/match"
+        params = {
+            "task": "affiliation-matching",
+            "input": quote(affiliation),
+            "strategy": "affiliation-single-search"
+        }
+        url = f"{base_url}?{'&'.join([f'{k}={v}' for k, v in params.items()])}"
+        r = requests.get(url)
         api_response = r.json()
-        items = api_response.get('items', [])
-        for item in items:
-            if item.get('chosen'):
-                org_id = item['organization']['id']
-                score = item['score']
-                results.append((org_id, score))
+
+        if api_response["status"] == "ok":
+            items = api_response["message"]["items"]
+            for item in items:
+                ror_id = item["id"]
+                confidence = item["confidence"]
+                results.append((ror_id, confidence))
                 if verbose:
-                    logging.debug(f"Match found for '{affiliation}': {org_id} (score: {score})")
+                    logging.debug(f"Crossref Marple match found for '{affiliation}': {ror_id} (confidence: {confidence})")
                 break
         if not results and verbose:
-            logging.debug(f"No match found for '{affiliation}' in initial query")
+            logging.debug(f"No Crossref Marple match found for '{affiliation}'")
     except Exception as e:
-        logging.error(f'Error for query: {affiliation} - {e}')
+        logging.error(f'Error in Crossref Marple query: {affiliation} - {e}')
     return results
 
 
@@ -63,11 +70,30 @@ def parse_affiliation(s, crf_model, country_dict, institution_dict, address_dict
     return institutions, addresses, countries
 
 
+def query_affiliation(affiliation, verbose):
+    results = []
+    try:
+        url = "https://api.ror.org/organizations"
+        params = {"affiliation": affiliation}
+        r = requests.get(url, params=params)
+        api_response = r.json()
+        items = api_response.get('items', [])
+        for item in items:
+            if item.get('chosen'):
+                org_id = item['organization']['id']
+                score = item['score']
+                results.append((org_id, score))
+                if verbose:
+                    logging.debug(f"Match found for '{affiliation}': {org_id} (score: {score})")
+                break
+        if not results and verbose:
+            logging.debug(f"No match found for '{affiliation}' in initial query")
+    except Exception as e:
+        logging.error(f'Error for query: {affiliation} - {e}')
+    return results
+
+
 def normalize_punctuation(text):
-    # - \s*([.,!?])\s* : Punctuation with optional surrounding spaces
-    # - \s+ : Multiple spaces
-    # - (\w)\s*\.\s*(\w)\s*\.\s* : Abbreviated forms like "U . S ."
-    # - \s\'(?=\s) : Apostrophes with spaces
     return re.sub(
         r'\s*([.,!?])\s*|\s+|(\w)\s*\.\s*(\w)\s*\.\s*|\s\'(?=\s)',
         lambda m: (m.group(1) + ' ' if m.group(1) else
@@ -88,7 +114,6 @@ def execute_fallback_query(affiliation, crf_model, country_dict, institution_dic
         for institution in institutions:
             normalized_institution = normalize_punctuation(institution)
             normalized_country = normalize_punctuation(country)
-            
             query = f"{normalized_institution}, {normalized_country}".strip(", ")
             fallback_queries.append(query)
             query_results = query_affiliation(query, verbose)
@@ -111,26 +136,32 @@ def parse_and_query(input_file, output_file, crf_model, country_dict, institutio
     try:
         with open(input_file, 'r+', encoding='utf-8-sig') as f_in, open(output_file, 'w') as f_out:
             reader = csv.DictReader(f_in)
-            fieldnames = reader.fieldnames + \
-                ["predicted_ror_id", "prediction_score",
-                    "match_type", "fallback_queries"]
+            fieldnames = reader.fieldnames + [
+                "predicted_ror_id", "prediction_score",
+                "match_type", "fallback_queries"
+            ]
             writer = csv.DictWriter(f_out, fieldnames=fieldnames)
             writer.writeheader()
             for row in reader:
                 affiliation = row['affiliation']
-                results = query_affiliation(affiliation, verbose)
-                match_type = "initial_query"
+                results = []
+                match_type = "no_match"
                 fallback_queries = ""
+                results = query_marple(affiliation, verbose)
+                if results:
+                    match_type = "marple"
                 if not results:
                     results, fallback_queries = execute_fallback_query(
                         affiliation, crf_model, country_dict, institution_dict, address_dict, verbose)
-                    match_type = "fallback_query" if results else "no_match"
+                    if results:
+                        match_type = "crf_fallback"
                 if results:
                     predicted_ids = ";".join([r[0] for r in results])
                     prediction_scores = ";".join([str(r[1]) for r in results])
                 else:
                     predicted_ids = None
                     prediction_scores = None
+
                 row.update({
                     "predicted_ror_id": predicted_ids,
                     "prediction_score": prediction_scores,
@@ -158,6 +189,8 @@ def parse_arguments():
                         default='data/institution_keywords.txt')
     parser.add_argument('-d', '--addresses', help='File containing address keywords',
                         default='data/address_keywords.txt')
+    parser.add_argument('--use-crossref-marple', action='store_true',
+                        help='Enable Crossref Marple API query')
     parser.add_argument('-v', '--verbose', action='store_true',
                         help='Enable verbose logging')
     return parser.parse_args()
