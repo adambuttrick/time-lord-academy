@@ -28,7 +28,6 @@ python single_search_crf_fallback.py -i <input_file.csv> -o <output_file.csv> -m
 - `-c, --countries`: File containing list of countries (default: 'data/countries.txt')
 - `-n, --institutions`: File containing institution keywords (default: 'data/institution_keywords.txt')
 - `-d, --addresses`: File containing address keywords (default: 'data/address_keywords.txt')
-- `--use-crossref-marple`: Enable Crossref Marple API query (optional)
 - `-v, --verbose`: Enable verbose logging
 
 ## Input Format
